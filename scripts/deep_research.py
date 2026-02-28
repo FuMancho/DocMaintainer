@@ -38,7 +38,8 @@ REPORTS_DIR = ROOT / "data" / "research_reports"
 DEFAULT_MODEL = "gemini-2.0-flash-lite"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 MAX_RETRIES = 3
-RETRY_DELAY = 30  # seconds between retries on 429
+RETRY_DELAY = 60  # seconds between retries on 429
+INTER_REQUEST_DELAY = 10  # seconds between repos to avoid burst rate limits
 
 
 def load_repos() -> dict:
