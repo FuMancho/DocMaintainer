@@ -33,7 +33,12 @@ ROOT = Path(__file__).parent.parent
 REPOS_FILE = ROOT / "repos.json"
 REPORTS_DIR = ROOT / "data" / "research_reports"
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+# Default model — gemini-2.0-flash-lite has the highest free-tier quota (30 RPM)
+# Override with --model or GEMINI_MODEL env var
+DEFAULT_MODEL = "gemini-2.0-flash-lite"
+API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+MAX_RETRIES = 3
+RETRY_DELAY = 30  # seconds between retries on 429
 
 
 def load_repos() -> dict:
@@ -65,9 +70,10 @@ Repository: {repo_name}
 Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"""
 
 
-def call_gemini_api(prompt: str, api_key: str) -> str:
-    """Call the Gemini API free tier."""
-    url = f"{GEMINI_API_URL}?key={api_key}"
+def call_gemini_api(prompt: str, api_key: str, model: str = DEFAULT_MODEL) -> str:
+    """Call the Gemini API free tier with retry logic for rate limits."""
+    import time as _time
+    url = f"{API_BASE}/{model}:generateContent?key={api_key}"
 
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
@@ -77,28 +83,34 @@ def call_gemini_api(prompt: str, api_key: str) -> str:
         }
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    for attempt in range(1, MAX_RETRIES + 1):
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        # Extract the generated text
-        candidates = data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text", "")
-        return "Error: No response generated"
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8") if e.fp else ""
-        return f"Error: API returned {e.code} — {body[:300]}"
-    except Exception as e:
-        return f"Error: {e}"
+        try:
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    return parts[0].get("text", "")
+            return "Error: No response generated"
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8") if e.fp else ""
+            if e.code == 429 and attempt < MAX_RETRIES:
+                print(f"  ⏳ Rate limited (429), retrying in {RETRY_DELAY}s... (attempt {attempt}/{MAX_RETRIES})")
+                _time.sleep(RETRY_DELAY)
+                continue
+            return f"Error: API returned {e.code} — {body[:300]}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    return "Error: Max retries exceeded"
 
 
 def save_report_local(repo_name: str, report: str) -> Path:
