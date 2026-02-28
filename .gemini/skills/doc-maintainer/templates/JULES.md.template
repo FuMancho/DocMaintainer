@@ -1,0 +1,72 @@
+# [Product Name] Documentation Update Instructions
+
+> This file tells Jules (or any agent) how to maintain this documentation repository.
+
+## Repository Purpose
+
+This repository maintains human-readable documentation for **[Product Name]**, synthesized from official sources.
+
+## Update Process
+
+### Step 1: Crawl Official Sources
+
+Run the crawler against URLs listed in `docs/official-links.md`:
+
+```bash
+python scripts/crawler.py --url "[BASE_URL]" --output scraped_docs/
+```
+
+### Step 2: Compare and Update
+
+For each file in `docs/`:
+1. Find the corresponding scraped content in `scraped_docs/`
+2. Compare for meaningful changes (ignore whitespace, formatting)
+3. Update the doc file with new content while preserving our markdown structure
+
+### Step 3: Validate Links
+
+Check that all links in `docs/` resolve correctly:
+- Internal cross-references (`./other-doc.md`)
+- External links to official sources
+- Remove or flag any broken links
+
+### Step 4: Update Changelog
+
+If new release notes are found, update `docs/changelog.md` with a summary.
+
+### Step 5: Commit
+
+```bash
+git add docs/
+git commit -m "docs: weekly documentation update [automated]"
+```
+
+## File Structure
+
+```
+├── README.md           # Repo overview
+├── JULES.md            # This file (do not modify)
+├── VERSION.md          # Version tracking (do not modify)
+├── .gitignore          # Excludes scraped_docs/
+└── docs/
+    ├── getting-started.md
+    ├── features.md
+    ├── commands.md
+    ├── best-practices.md
+    ├── troubleshooting.md
+    ├── changelog.md
+    └── official-links.md
+```
+
+## Link Handling Policy
+
+- **First-party links** (same domain): Always include, verify they resolve
+- **Third-party links**: Include only from official sources listed in `official-links.md`
+- **Broken links**: Remove or replace with archived versions
+
+## Files to Ignore
+
+Do not modify:
+- `JULES.md` (this file)
+- `VERSION.md` (updated automatically by the pipeline)
+- `.gitignore`
