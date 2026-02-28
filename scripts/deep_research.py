@@ -33,13 +33,15 @@ ROOT = Path(__file__).parent.parent
 REPOS_FILE = ROOT / "repos.json"
 REPORTS_DIR = ROOT / "data" / "research_reports"
 
-# Default model — gemini-2.0-flash-lite has the highest free-tier quota (30 RPM)
-# Override with --model or GEMINI_MODEL env var
-DEFAULT_MODEL = "gemini-2.0-flash-lite"
+# Model selection — best quality free-tier models with fallback chain
+# Free tier limits: gemini-2.5-flash = 5 RPM / 100 RPD, lite = 30 RPM / 1500 RPD
+# For 4 weekly requests this is more than enough on the best model
+DEFAULT_MODEL = "gemini-2.5-flash"
+MODEL_FALLBACK = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 MAX_RETRIES = 3
 RETRY_DELAY = 60  # seconds between retries on 429
-INTER_REQUEST_DELAY = 10  # seconds between repos to avoid burst rate limits
+INTER_REQUEST_DELAY = 15  # seconds between repos (free tier = 5 RPM)
 
 
 def load_repos() -> dict:
@@ -72,9 +74,19 @@ Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"""
 
 
 def call_gemini_api(prompt: str, api_key: str, model: str = DEFAULT_MODEL) -> str:
-    """Call the Gemini API free tier with retry logic for rate limits."""
+    """Call the Gemini API free tier with automatic model fallback on rate limits.
+    
+    Tries the best model first, falls back to cheaper models on 429 errors:
+    gemini-2.5-flash → gemini-2.0-flash → gemini-2.0-flash-lite
+    """
     import time as _time
-    url = f"{API_BASE}/{model}:generateContent?key={api_key}"
+
+    # Build fallback chain starting from requested model
+    try:
+        start_idx = MODEL_FALLBACK.index(model)
+    except ValueError:
+        start_idx = 0
+    models_to_try = MODEL_FALLBACK[start_idx:]
 
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
@@ -84,34 +96,42 @@ def call_gemini_api(prompt: str, api_key: str, model: str = DEFAULT_MODEL) -> st
         }
     }).encode("utf-8")
 
-    for attempt in range(1, MAX_RETRIES + 1):
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+    for current_model in models_to_try:
+        url = f"{API_BASE}/{current_model}:generateContent?key={api_key}"
 
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "")
-            return "Error: No response generated"
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8") if e.fp else ""
-            if e.code == 429 and attempt < MAX_RETRIES:
-                print(f"  ⏳ Rate limited (429), retrying in {RETRY_DELAY}s... (attempt {attempt}/{MAX_RETRIES})")
-                _time.sleep(RETRY_DELAY)
-                continue
-            return f"Error: API returned {e.code} — {body[:300]}"
-        except Exception as e:
-            return f"Error: {e}"
+        for attempt in range(1, MAX_RETRIES + 1):
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
 
-    return "Error: Max retries exceeded"
+            try:
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+                return "Error: No response generated"
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8") if e.fp else ""
+                if e.code == 429:
+                    if attempt < MAX_RETRIES:
+                        print(f"  ⏳ Rate limited on {current_model}, retrying in {RETRY_DELAY}s... ({attempt}/{MAX_RETRIES})")
+                        _time.sleep(RETRY_DELAY)
+                        continue
+                    else:
+                        # Exhausted retries for this model, try next one
+                        print(f"  ⬇️ Falling back from {current_model}...")
+                        break
+                return f"Error: API returned {e.code} — {body[:300]}"
+            except Exception as e:
+                return f"Error: {e}"
+
+    return "Error: All models exhausted (rate limited)"
 
 
 def save_report_local(repo_name: str, report: str) -> Path:

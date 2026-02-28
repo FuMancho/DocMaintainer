@@ -114,11 +114,17 @@ function doWeeklyResearch() {
 
 // ============== GEMINI API ==============
 
-function callGeminiAPI(apiKey, prompt) {
-    var url =
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
-        apiKey;
+// Best free-tier models with automatic fallback
+// gemini-2.5-flash: 5 RPM free, best quality
+// gemini-2.0-flash: 15 RPM free, good quality
+// gemini-2.0-flash-lite: 30 RPM free, fast
+var MODEL_CHAIN = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+];
 
+function callGeminiAPI(apiKey, prompt) {
     var payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -134,20 +140,37 @@ function callGeminiAPI(apiKey, prompt) {
         muteHttpExceptions: true,
     };
 
-    var response = UrlFetchApp.fetch(url, options);
-    var code = response.getResponseCode();
+    // Try each model in the fallback chain
+    for (var i = 0; i < MODEL_CHAIN.length; i++) {
+        var model = MODEL_CHAIN[i];
+        var url =
+            "https://generativelanguage.googleapis.com/v1beta/models/" +
+            model +
+            ":generateContent?key=" +
+            apiKey;
 
-    if (code !== 200) {
-        throw new Error("API returned " + code + ": " + response.getContentText().substring(0, 300));
+        Logger.log("  Trying model: " + model);
+        var response = UrlFetchApp.fetch(url, options);
+        var code = response.getResponseCode();
+
+        if (code === 200) {
+            var data = JSON.parse(response.getContentText());
+            var candidates = data.candidates || [];
+            if (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {
+                Logger.log("  ✅ Success with " + model);
+                return candidates[0].content.parts[0].text;
+            }
+            throw new Error("No content in API response");
+        } else if (code === 429 && i < MODEL_CHAIN.length - 1) {
+            Logger.log("  ⬇️ Rate limited on " + model + ", falling back...");
+            Utilities.sleep(15000); // 15s cooldown
+            continue;
+        } else {
+            throw new Error("API returned " + code + ": " + response.getContentText().substring(0, 300));
+        }
     }
 
-    var data = JSON.parse(response.getContentText());
-    var candidates = data.candidates || [];
-    if (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {
-        return candidates[0].content.parts[0].text;
-    }
-
-    throw new Error("No content in API response");
+    throw new Error("All models exhausted (rate limited)");
 }
 
 // ============== PROMPT BUILDER ==============
