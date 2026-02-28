@@ -9,6 +9,7 @@ on:
 jobs:
   trigger-jules:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - name: Checkout DocMaintainer
         uses: actions/checkout@v4
@@ -18,7 +19,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Trigger Jules sessions
+      - name: Trigger Jules sessions and auto-merge PRs
         env:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
-        run: python scripts/trigger_jules.py
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/trigger_jules.py \
+            --auto-merge \
+            --poll-interval 60 \
+            --timeout 3600

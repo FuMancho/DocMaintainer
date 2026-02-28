@@ -6,15 +6,18 @@ Uses the Jules REST API (v1alpha) to kick off documentation update tasks.
 Requires the JULES_API_KEY environment variable to be set.
 
 Usage:
-    python scripts/trigger_jules.py                 # all repos
+    python scripts/trigger_jules.py                    # all repos
     python scripts/trigger_jules.py --repo GeminiDocs  # single repo
-    python scripts/trigger_jules.py --dry-run       # preview without sending
+    python scripts/trigger_jules.py --auto-merge       # create + poll + merge
+    python scripts/trigger_jules.py --dry-run          # preview without sending
 """
 
 import argparse
 import json
 import os
+import subprocess
 import sys
+import time
 import urllib.request
 import urllib.error
 
@@ -72,6 +75,11 @@ REPOS = {
     },
 }
 
+# Session states that mean "still working"
+ACTIVE_STATES = {"STATE_UNSPECIFIED", "ACTIVE", "WAITING_FOR_USER"}
+# Session states that mean "done"
+TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
+
 
 def jules_request(
     path: str,
@@ -99,8 +107,8 @@ def jules_request(
 
 def list_sources(api_key: str) -> list[dict]:
     """List all connected sources (repos)."""
-    sources = []
-    page_token = None
+    sources: list[dict] = []
+    page_token: str | None = None
     while True:
         path = "/sources"
         if page_token:
@@ -135,7 +143,104 @@ def create_session(
     return jules_request("/sessions", api_key, method="POST", body=body)
 
 
-def main():
+def get_session(api_key: str, session_id: str) -> dict:
+    """Get the current state of a Jules session."""
+    return jules_request(f"/sessions/{session_id}", api_key)
+
+
+def poll_sessions(
+    api_key: str,
+    session_ids: dict[str, str],
+    poll_interval: int = 60,
+    timeout: int = 3600,
+) -> dict[str, dict]:
+    """
+    Poll multiple sessions until they all reach a terminal state.
+
+    Args:
+        api_key: Jules API key
+        session_ids: {repo_name: session_id}
+        poll_interval: seconds between polls
+        timeout: max seconds to wait
+
+    Returns:
+        {repo_name: session_data}
+    """
+    start = time.time()
+    completed: dict[str, dict] = {}
+    pending = dict(session_ids)
+
+    print(f"\n⏳ Polling {len(pending)} session(s) (interval={poll_interval}s, timeout={timeout}s)...")
+
+    while pending and (time.time() - start) < timeout:
+        for repo_name, sid in list(pending.items()):
+            try:
+                session = get_session(api_key, sid)
+                state = session.get("state", "UNKNOWN")
+
+                if state in TERMINAL_STATES:
+                    completed[repo_name] = session
+                    del pending[repo_name]
+                    pr_url = extract_pr_url(session)
+                    status = "✅" if state == "COMPLETED" else "❌"
+                    print(f"  {status} {repo_name}: {state}" +
+                          (f" → {pr_url}" if pr_url else ""))
+                else:
+                    elapsed = int(time.time() - start)
+                    print(f"  ⏳ {repo_name}: {state} ({elapsed}s elapsed)")
+            except Exception as e:
+                print(f"  ⚠️ {repo_name}: poll error — {e}", file=sys.stderr)
+
+        if pending:
+            time.sleep(poll_interval)
+
+    # Timed-out sessions
+    for repo_name in pending:
+        print(f"  ⏰ {repo_name}: TIMED OUT after {timeout}s", file=sys.stderr)
+        completed[repo_name] = {"state": "TIMED_OUT", "id": pending[repo_name]}
+
+    return completed
+
+
+def extract_pr_url(session: dict) -> str | None:
+    """Extract the PR URL from a completed session."""
+    for output in session.get("outputs", []):
+        pr = output.get("pullRequest", {})
+        url = pr.get("url")
+        if url:
+            return url
+    return None
+
+
+def merge_pr(pr_url: str, gh_token: str | None = None) -> bool:
+    """Merge a GitHub PR using the gh CLI."""
+    env = os.environ.copy()
+    if gh_token:
+        env["GH_TOKEN"] = gh_token
+
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "merge", pr_url, "--merge", "--delete-branch"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            print(f"  🔀 Merged: {pr_url}")
+            return True
+        else:
+            print(f"  ❌ Merge failed: {result.stderr.strip()}", file=sys.stderr)
+            return False
+    except FileNotFoundError:
+        print("  ❌ 'gh' CLI not found. Install: https://cli.github.com", file=sys.stderr)
+        return False
+    except subprocess.TimeoutExpired:
+        print(f"  ❌ Merge timed out for {pr_url}", file=sys.stderr)
+        return False
+
+
+def main() -> None:
     ap = argparse.ArgumentParser(
         description="Trigger Jules documentation update sessions.",
     )
@@ -156,6 +261,23 @@ def main():
         action="store_true",
         help="List connected sources and exit.",
     )
+    ap.add_argument(
+        "--auto-merge",
+        action="store_true",
+        help="After creating sessions, poll until complete and auto-merge PRs.",
+    )
+    ap.add_argument(
+        "--poll-interval",
+        type=int,
+        default=60,
+        help="Seconds between status polls when using --auto-merge (default: 60).",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="Max seconds to wait for sessions when using --auto-merge (default: 3600).",
+    )
     args = ap.parse_args()
 
     api_key = os.environ.get("JULES_API_KEY")
@@ -175,10 +297,10 @@ def main():
     targets = {args.repo: REPOS[args.repo]} if args.repo else REPOS
 
     # Resolve source names
+    source_map: dict[str, str] = {}
     if not args.dry_run:
         print("Fetching connected sources...")
         sources = list_sources(api_key)
-        source_map = {}
         for src in sources:
             gh = src.get("githubRepo", {})
             key = f"{gh.get('owner', '')}/{gh.get('repo', '')}"
@@ -186,7 +308,9 @@ def main():
         print(f"  Found {len(sources)} source(s)\n")
 
     # Create sessions
-    results = []
+    results: list[dict] = []
+    session_ids: dict[str, str] = {}
+    err = 0
     for repo_name, config in targets.items():
         full_name = f"{config['owner']}/{config['repo']}"
         print(f"{'[DRY RUN] ' if args.dry_run else ''}Creating session for {full_name}...")
@@ -196,6 +320,7 @@ def main():
             print(f"  Branch: {config['branch']}")
             print(f"  Title:  {config['title']}")
             print(f"  Prompt: {config['prompt'][:80]}...")
+            print(f"  Auto-merge: {args.auto_merge}")
             print()
             continue
 
@@ -217,18 +342,48 @@ def main():
             session_id = result.get("id", "?")
             print(f"  ✅ Session created: {session_id}")
             results.append({"repo": repo_name, "session_id": session_id, "status": "ok"})
+            session_ids[repo_name] = session_id
         except Exception as e:
             print(f"  ❌ Failed: {e}", file=sys.stderr)
             results.append({"repo": repo_name, "error": str(e), "status": "error"})
+            err += 1
         print()
 
     # Summary
     if not args.dry_run:
         ok = sum(1 for r in results if r["status"] == "ok")
-        err = sum(1 for r in results if r["status"] == "error")
-        print(f"Done: {ok} created, {err} failed")
-        if err:
+        print(f"Sessions: {ok} created, {err} failed")
+
+    # Auto-merge: poll and merge
+    if args.auto_merge and session_ids:
+        completed = poll_sessions(
+            api_key, session_ids, args.poll_interval, args.timeout,
+        )
+
+        gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        merged = 0
+        for repo_name, session in completed.items():
+            state = session.get("state", "UNKNOWN")
+            if state != "COMPLETED":
+                print(f"  ⏭️ {repo_name}: skipping merge (state={state})")
+                continue
+
+            pr_url = extract_pr_url(session)
+            if not pr_url:
+                print(f"  ⏭️ {repo_name}: no PR found in session output")
+                continue
+
+            if merge_pr(pr_url, gh_token):
+                merged += 1
+
+        print(f"\n{'=' * 40}")
+        print(f"  Final: {merged} PR(s) merged")
+        print(f"{'=' * 40}")
+
+        if merged < len(session_ids):
             sys.exit(1)
+    elif not args.dry_run and err > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
