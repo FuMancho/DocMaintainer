@@ -7,7 +7,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  pre-flight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run pre-flight health check
+        run: |
+          python scripts/health_check.py || echo "⚠️ Health check found issues (non-blocking)"
+
   trigger-jules:
+    needs: pre-flight
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

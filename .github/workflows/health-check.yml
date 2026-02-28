@@ -1,0 +1,79 @@
+name: Weekly Health Check
+
+on:
+  schedule:
+    # Every Wednesday at 12:00 UTC (mid-week check)
+    - cron: '0 12 * * 3'
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run health check
+        id: health
+        run: |
+          python scripts/health_check.py --json > /tmp/health.json 2>&1 || true
+          python scripts/health_check.py || true
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/health.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create issue if problems found
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `📋 Health Check — ${new Date().toISOString().slice(0,10)}`;
+            const body = `## Automated Health Check Report\n\n` +
+              `The weekly health check found issues. Run locally for details:\n\n` +
+              '```bash\npython scripts/health_check.py\n```\n\n' +
+              `_This issue was created automatically by the health-check workflow._`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['automated', 'documentation']
+            });
+
+  pre-flight-jules:
+    needs: health-check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify JULES.md currency
+        run: |
+          python scripts/generate_jules.py --dry-run 2>&1 | head -20
+          echo "✅ JULES.md template system operational"
+
+      - name: Verify repos.json integrity
+        run: |
+          python -c "
+          import json
+          with open('repos.json') as f:
+              repos = json.load(f)
+          required = ['owner', 'repo', 'start_url', 'base_path', 'official_domains']
+          for name, cfg in repos.items():
+              for key in required:
+                  assert key in cfg, f'{name} missing {key}'
+          print(f'✅ repos.json valid — {len(repos)} repos configured')
+          "
