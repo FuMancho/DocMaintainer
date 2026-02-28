@@ -1,0 +1,50 @@
+name: Weekly Deep Research
+
+on:
+  schedule:
+    # Every Friday at 14:00 UTC (before Monday's Jules update)
+    - cron: '0 14 * * 5'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'Single repo to research (or leave blank for all)'
+        required: false
+        default: ''
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run deep research
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          REPO_ARG=""
+          if [ -n "${{ github.event.inputs.repo }}" ]; then
+            REPO_ARG="--repo ${{ github.event.inputs.repo }}"
+          fi
+          python scripts/deep_research.py $REPO_ARG --local
+
+      - name: Upload research reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-reports-${{ github.run_number }}
+          path: data/research_reports/
+          retention-days: 90
+
+      - name: Commit reports to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/research_reports/
+          git diff --cached --quiet || git commit -m "research: weekly deep research reports [automated]"
+          git push
