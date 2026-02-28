@@ -33,8 +33,9 @@ REPOS = {
         "prompt": (
             "Follow the instructions in JULES.md to update this documentation repo. "
             "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, and commit with the "
-            "standard message format: 'docs: weekly documentation update [automated]'."
+            "files, validate links using the link audit report, update docs/changelog.md "
+            "with any new release notes found, and commit with the standard message format: "
+            "'docs: weekly documentation update [automated]'."
         ),
     },
     "GeminiDocs": {
@@ -45,8 +46,9 @@ REPOS = {
         "prompt": (
             "Follow the instructions in JULES.md to update this documentation repo. "
             "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, and commit with the "
-            "standard message format: 'docs: weekly documentation update [automated]'."
+            "files, validate links using the link audit report, update docs/changelog.md "
+            "with any new release notes found, and commit with the standard message format: "
+            "'docs: weekly documentation update [automated]'."
         ),
     },
     "CodexDocs": {
@@ -57,8 +59,9 @@ REPOS = {
         "prompt": (
             "Follow the instructions in JULES.md to update this documentation repo. "
             "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, and commit with the "
-            "standard message format: 'docs: weekly documentation update [automated]'."
+            "files, validate links using the link audit report, update docs/changelog.md "
+            "with any new release notes found, and commit with the standard message format: "
+            "'docs: weekly documentation update [automated]'."
         ),
     },
     "AntigravityDocs": {
