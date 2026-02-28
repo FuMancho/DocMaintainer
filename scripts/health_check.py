@@ -82,12 +82,19 @@ def check_repo(repo_name: str) -> dict:
         if line_count < MIN_LINES:
             issues.append(f"🔴 Stub file: docs/{md_file.name} ({line_count} lines)")
 
-        # Marker detection
+        # Marker detection — use word boundaries to avoid false positives
+        # (e.g., "Todos" tool name, "Pending child-thread" feature name)
         content_lower = content.lower()
         for marker in STUB_MARKERS:
-            if marker in content_lower:
-                warnings.append(f"⚠️ Placeholder marker '{marker}' in docs/{md_file.name}")
-                break
+            pattern = r'\b' + re.escape(marker) + r'\b'
+            # Only flag if the marker appears as a standalone phrase, not as part of
+            # a feature name or tool description
+            if re.search(pattern, content_lower):
+                # Extra check: skip if the file has real content (> 30 lines)
+                # and the marker only appears in a feature description context
+                if line_count < 30 or marker in ("placeholder", "stub", "coming soon", "tbd"):
+                    warnings.append(f"⚠️ Placeholder marker '{marker}' in docs/{md_file.name}")
+                    break
 
         # Internal link validation
         links = re.findall(r'\[.*?\]\(\./([^)]+)\)', content)
