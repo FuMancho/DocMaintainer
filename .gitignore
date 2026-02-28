@@ -4,3 +4,5 @@ CodexDocs/
 AntigravityDocs/
 __pycache__/
 *.pyc
+scripts/credentials.json
+scripts/token.json
