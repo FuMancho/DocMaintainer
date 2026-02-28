@@ -2,3 +2,5 @@ ClaudeCodeDocs/
 GeminiDocs/
 CodexDocs/
 AntigravityDocs/
+__pycache__/
+*.pyc
