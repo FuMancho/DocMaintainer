@@ -20,63 +20,35 @@ import sys
 import time
 import urllib.request
 import urllib.error
+from pathlib import Path
 
 API_BASE = "https://jules.googleapis.com/v1alpha"
+REPOS_FILE = Path(__file__).parent.parent / "repos.json"
 
-# Repo configurations: owner/repo -> source name + prompt
-REPOS = {
-    "ClaudeCodeDocs": {
-        "owner": "FuMancho",
-        "repo": "ClaudeCodeDocs",
-        "branch": "master",
-        "title": "Weekly documentation update — ClaudeCodeDocs",
-        "prompt": (
-            "Follow the instructions in JULES.md to update this documentation repo. "
-            "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, update docs/changelog.md "
-            "with any new release notes found, and commit with the standard message format: "
-            "'docs: weekly documentation update [automated]'."
-        ),
-    },
-    "GeminiDocs": {
-        "owner": "FuMancho",
-        "repo": "GeminiDocs",
-        "branch": "master",
-        "title": "Weekly documentation update — GeminiDocs",
-        "prompt": (
-            "Follow the instructions in JULES.md to update this documentation repo. "
-            "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, update docs/changelog.md "
-            "with any new release notes found, and commit with the standard message format: "
-            "'docs: weekly documentation update [automated]'."
-        ),
-    },
-    "CodexDocs": {
-        "owner": "FuMancho",
-        "repo": "CodexDocs",
-        "branch": "master",
-        "title": "Weekly documentation update — CodexDocs",
-        "prompt": (
-            "Follow the instructions in JULES.md to update this documentation repo. "
-            "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, update docs/changelog.md "
-            "with any new release notes found, and commit with the standard message format: "
-            "'docs: weekly documentation update [automated]'."
-        ),
-    },
-    "AntigravityDocs": {
-        "owner": "FuMancho",
-        "repo": "AntigravityDocs",
-        "branch": "master",
-        "title": "Weekly documentation update — AntigravityDocs",
-        "prompt": (
-            "Follow the instructions in JULES.md to update this documentation repo. "
-            "Run the crawler, compare scraped content against docs/, update any changed "
-            "files, validate links using the link audit report, and commit with the "
-            "standard message format: 'docs: weekly documentation update [automated]'."
-        ),
-    },
-}
+
+def load_repos_config() -> dict:
+    """Load repo configs from central repos.json and build the REPOS dict."""
+    with open(REPOS_FILE) as f:
+        raw = json.load(f)
+    repos = {}
+    for name, cfg in raw.items():
+        repos[name] = {
+            "owner": cfg["owner"],
+            "repo": cfg["repo"],
+            "branch": cfg.get("branch", "master"),
+            "title": f"Weekly documentation update — {name}",
+            "prompt": cfg.get("jules_prompt", (
+                "Follow the instructions in JULES.md to update this documentation repo. "
+                "Run the crawler, compare scraped content against docs/, update any changed "
+                "files, validate links using the link audit report, update docs/changelog.md "
+                "with any new release notes found, and commit with the standard message format: "
+                "'docs: weekly documentation update [automated]'."
+            )),
+        }
+    return repos
+
+
+REPOS = load_repos_config()
 
 # Session states that mean "still working"
 ACTIVE_STATES = {"STATE_UNSPECIFIED", "ACTIVE", "WAITING_FOR_USER"}

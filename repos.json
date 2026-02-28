@@ -1,0 +1,80 @@
+{
+    "ClaudeCodeDocs": {
+        "owner": "FuMancho",
+        "repo": "ClaudeCodeDocs",
+        "branch": "master",
+        "tool_name": "Anthropic Claude Code CLI",
+        "tool_package": "@anthropic-ai/claude-code",
+        "start_url": "https://code.claude.com/docs/en/cli-reference",
+        "base_path": "/docs/en/",
+        "official_domains": [
+            "docs.anthropic.com",
+            "code.claude.com",
+            "platform.claude.com"
+        ],
+        "feed_url": "https://github.com/anthropics/claude-code/releases.atom",
+        "github_example": "github.com/anthropics/claude-code",
+        "extra_keep_domains": [
+            "Cloud provider docs (aws.amazon.com, cloud.google.com)"
+        ],
+        "jules_prompt": "Follow the instructions in JULES.md. Crawl the official documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
+    },
+    "GeminiDocs": {
+        "owner": "FuMancho",
+        "repo": "GeminiDocs",
+        "branch": "master",
+        "tool_name": "Google Gemini AI ecosystem",
+        "tool_package": "Gemini CLI",
+        "start_url": "https://geminicli.com/docs/",
+        "base_path": "/docs/",
+        "official_domains": [
+            "geminicli.com",
+            "ai.google.dev"
+        ],
+        "feed_url": "https://github.com/google-gemini/gemini-cli/releases.atom",
+        "github_example": "github.com/google-gemini/gemini-cli",
+        "extra_keep_domains": [
+            "Cloud provider docs (cloud.google.com)"
+        ],
+        "jules_prompt": "Follow the instructions in JULES.md. Crawl the official documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
+    },
+    "CodexDocs": {
+        "owner": "FuMancho",
+        "repo": "CodexDocs",
+        "branch": "master",
+        "tool_name": "OpenAI Codex CLI",
+        "tool_package": "@openai/codex",
+        "start_url": "https://developers.openai.com/codex/cli/",
+        "base_path": "/codex/cli/",
+        "official_domains": [
+            "developers.openai.com"
+        ],
+        "feed_url": "https://github.com/openai/codex/releases.atom",
+        "github_example": "github.com/openai/codex",
+        "extra_keep_domains": [
+            "Cloud provider docs"
+        ],
+        "jules_prompt": "Follow the instructions in JULES.md. Crawl the official documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
+    },
+    "AntigravityDocs": {
+        "owner": "FuMancho",
+        "repo": "AntigravityDocs",
+        "branch": "master",
+        "tool_name": "Google Antigravity",
+        "tool_package": "Antigravity IDE",
+        "start_url": "https://antigravity.im/documentation",
+        "base_path": "/",
+        "official_domains": [
+            "antigravity.google",
+            "antigravity.im"
+        ],
+        "feed_url": null,
+        "feed_disabled": true,
+        "github_example": "github.com/google/antigravity",
+        "extra_keep_domains": [
+            "Google Cloud docs (cloud.google.com)",
+            "Google Developers Blog (developers.googleblog.com)"
+        ],
+        "jules_prompt": "Follow the instructions in JULES.md. Crawl the official documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
+    }
+}

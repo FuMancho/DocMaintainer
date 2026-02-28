@@ -21,29 +21,26 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATA_FILE = Path(__file__).parent.parent / "data" / "last_releases.json"
+ROOT = Path(__file__).parent.parent
+DATA_FILE = ROOT / "data" / "last_releases.json"
+REPOS_FILE = ROOT / "repos.json"
 
-# Upstream release feeds per doc repo
-FEEDS = {
-    "ClaudeCodeDocs": {
-        "name": "Claude Code",
-        "feed_url": "https://github.com/anthropics/claude-code/releases.atom",
-    },
-    "GeminiDocs": {
-        "name": "Gemini CLI",
-        "feed_url": "https://github.com/google-gemini/gemini-cli/releases.atom",
-    },
-    "CodexDocs": {
-        "name": "OpenAI Codex",
-        "feed_url": "https://github.com/openai/codex/releases.atom",
-    },
-    "AntigravityDocs": {
-        "name": "Google Antigravity",
-        # No public GitHub releases; uses the community tool releases as a proxy
-        "feed_url": "https://github.com/anthropics/claude-code/tags.atom",
-        "disabled": True,  # Skip — Antigravity updates via weekly cron only
-    },
-}
+
+def load_feeds() -> dict:
+    """Load feed configs from central repos.json."""
+    with open(REPOS_FILE) as f:
+        raw = json.load(f)
+    feeds = {}
+    for name, cfg in raw.items():
+        feeds[name] = {
+            "name": cfg.get("tool_name", name),
+            "feed_url": cfg.get("feed_url", ""),
+            "disabled": cfg.get("feed_disabled", False) or not cfg.get("feed_url"),
+        }
+    return feeds
+
+
+FEEDS = load_feeds()
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 

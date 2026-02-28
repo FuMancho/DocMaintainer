@@ -12,15 +12,23 @@ Usage:
 """
 
 import argparse
+import json
 import subprocess
 import sys
+from pathlib import Path
 
-REPOS = [
-    "FuMancho/ClaudeCodeDocs",
-    "FuMancho/GeminiDocs",
-    "FuMancho/CodexDocs",
-    "FuMancho/AntigravityDocs",
-]
+ROOT = Path(__file__).parent.parent
+REPOS_FILE = ROOT / "repos.json"
+
+
+def load_repos() -> list[str]:
+    """Load repo slugs (owner/repo) from central repos.json."""
+    with open(REPOS_FILE) as f:
+        raw = json.load(f)
+    return [f"{cfg['owner']}/{cfg['repo']}" for cfg in raw.values()]
+
+
+REPOS = load_repos()
 
 
 def get_merged_branches(repo: str) -> list[str]:
