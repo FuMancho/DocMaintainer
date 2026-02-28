@@ -76,5 +76,26 @@
             "Google Developers Blog (developers.googleblog.com)"
         ],
         "jules_prompt": "Follow the instructions in JULES.md. Crawl the official documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
+    },
+    "JulesDocs": {
+        "owner": "FuMancho",
+        "repo": "JulesDocs",
+        "branch": "master",
+        "tool_name": "Google Jules Autonomous Agent",
+        "tool_package": "@google/jules",
+        "start_url": "https://jules.google.com",
+        "base_path": "/",
+        "official_domains": [
+            "jules.google.com",
+            "ai.google.dev"
+        ],
+        "feed_url": null,
+        "feed_disabled": true,
+        "github_example": "github.com/google/jules",
+        "extra_keep_domains": [
+            "Google Cloud docs (cloud.google.com)",
+            "Google AI docs (ai.google.dev)"
+        ],
+        "jules_prompt": "Follow the instructions in JULES.md. Research the latest Jules documentation, compare against existing docs/, update changed files, validate links using the link audit report, update docs/changelog.md with any new release notes found, and commit with the standard message format: 'docs: weekly documentation update [automated]'."
     }
 }
