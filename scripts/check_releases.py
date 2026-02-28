@@ -31,7 +31,7 @@ FEEDS = {
     },
     "GeminiDocs": {
         "name": "Gemini CLI",
-        "feed_url": "https://github.com/google/gemini-cli/releases.atom",
+        "feed_url": "https://github.com/google-gemini/gemini-cli/releases.atom",
     },
     "CodexDocs": {
         "name": "OpenAI Codex",
@@ -39,7 +39,9 @@ FEEDS = {
     },
     "AntigravityDocs": {
         "name": "Google Antigravity",
-        "feed_url": "https://github.com/google/antigravity/releases.atom",
+        # No public GitHub releases; uses the community tool releases as a proxy
+        "feed_url": "https://github.com/anthropics/claude-code/tags.atom",
+        "disabled": True,  # Skip — Antigravity updates via weekly cron only
     },
 }
 
@@ -111,6 +113,11 @@ def main() -> None:
 
     for repo_name, feed_info in targets.items():
         print(f"Checking {feed_info['name']} ({repo_name})...")
+
+        if feed_info.get("disabled"):
+            print(f"  ⏭️ Skipped (no public release feed)\n")
+            continue
+
         latest = fetch_latest_release(feed_info["feed_url"])
 
         if latest is None:
