@@ -1,0 +1,72 @@
+name: Release Watcher
+
+on:
+  schedule:
+    # Every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check for new releases
+        id: check
+        run: |
+          output=$(python scripts/check_releases.py --output-json 2>&1 || true)
+          echo "$output"
+          # Extract the JSON line
+          changed=$(echo "$output" | grep '{"changed"' | head -1)
+          if [ -z "$changed" ]; then
+            echo "changed=[]" >> $GITHUB_OUTPUT
+          else
+            repos=$(echo "$changed" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['changed']))")
+            echo "changed=$repos" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit release state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/last_releases.json
+          git diff --cached --quiet || git commit -m "chore: update release state [automated]"
+          git push
+
+  trigger-updates:
+    needs: check-releases
+    if: needs.check-releases.outputs.changed != '[]' && needs.check-releases.outputs.changed != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        repo: ${{ fromJson(needs.check-releases.outputs.changed) }}
+    steps:
+      - name: Checkout DocMaintainer
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Trigger Jules for ${{ matrix.repo }}
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          python scripts/trigger_jules.py \
+            --repo ${{ matrix.repo }} \
+            --auto-merge \
+            --poll-interval 60 \
+            --timeout 3600
