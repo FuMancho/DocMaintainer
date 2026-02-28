@@ -103,9 +103,56 @@ After crawling, the file `scraped_docs/_link_audit.md` contains a pre-classified
 - ⚠️ **Third-party** — apply the decision rules table above
 - ❌ **Dead** — remove from documentation
 
+## Quality Gates
+
+Before committing, run this self-check. **All must pass:**
+
+### Content Quality Checklist
+
+```
+[ ] Every docs/*.md file has ≥ 15 lines of substantive content (no stubs)
+[ ] No placeholder markers: "TODO", "TBD", "coming soon", "placeholder"
+[ ] All code blocks have a language tag (bash, json, yaml, etc.)
+[ ] Heading hierarchy is strict: # → ## → ### (no skipped levels)
+[ ] Tables are properly formatted with header separators
+```
+
+### Link Integrity Checklist
+
+```
+[ ] All internal relative links (./file.md) resolve to existing files
+[ ] All external links point to verified official domains
+[ ] docs/official-links.md is updated with any new official URLs
+[ ] No dead links (404s) remain — checked against _link_audit.md
+```
+
+### Proof of Completion
+
+Provide evidence of task completion in the PR description:
+
+1. **Files changed** — list all docs/*.md files modified or added
+2. **Links validated** — confirm internal link check passed
+3. **Diff summary** — note what changed vs. previous version
+4. **No regressions** — confirm no existing content was accidentally deleted
+
+## Critic Self-Review
+
+Before submitting, review your own changes adversarially:
+
+- **Accuracy:** Does the content match the official source? No hallucinated features.
+- **Completeness:** Are all discoverable pages reflected in docs/?
+- **Consistency:** Do formatting, style, and structure match the existing docs?
+- **No data loss:** Did you accidentally remove content that's still valid upstream?
+- **Changelog updated:** If new releases were found, is docs/changelog.md updated?
+
+> [!IMPORTANT]
+> If you are uncertain about any content, leave the existing text unchanged and flag it in the PR description rather than writing speculative documentation.
+
 ## Files to Ignore
 
 Do not modify:
 - `JULES.md` (this file)
 - `VERSION.md` (updated automatically by the pipeline)
 - `.gitignore`
+- `AGENTS.md` (repository context file)
+

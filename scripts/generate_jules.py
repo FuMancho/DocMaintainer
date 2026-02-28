@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-generate_jules.py — Generate JULES.md files from the central repos.json config.
+generate_jules.py — Generate JULES.md and AGENTS.md from central repos.json config.
 
-Reads repos.json + templates/JULES.md.j2 and produces a JULES.md for each repo.
+Reads repos.json + templates/*.j2 and produces files for each repo.
 
 Usage:
-    python scripts/generate_jules.py                # generate all
+    python scripts/generate_jules.py                   # generate all
     python scripts/generate_jules.py --repo GeminiDocs  # single repo
-    python scripts/generate_jules.py --dry-run      # preview only
+    python scripts/generate_jules.py --dry-run          # preview only
+    python scripts/generate_jules.py --jules-only       # JULES.md only
+    python scripts/generate_jules.py --agents-only      # AGENTS.md only
 """
 
 import argparse
 import json
-import os
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 REPOS_FILE = ROOT / "repos.json"
 TEMPLATE_FILE = ROOT / "templates" / "JULES.md.j2"
+AGENTS_TEMPLATE_FILE = ROOT / "templates" / "AGENTS.md.j2"
 
 
 def load_repos() -> dict:
@@ -34,8 +37,6 @@ def render_template(template_text: str, variables: dict) -> str:
     - {{ var | join(', ') }}
     - {% for item in list %}...{% endfor %}
     """
-    import re
-
     result = template_text
 
     # Handle {% for item in list %}...{% endfor %} blocks
@@ -77,11 +78,9 @@ def render_template(template_text: str, variables: dict) -> str:
     return result
 
 
-def generate_jules_md(repo_name: str, config: dict, dry_run: bool = False) -> str:
-    """Generate a JULES.md for a single repo."""
-    template_text = TEMPLATE_FILE.read_text(encoding="utf-8")
-
-    variables = {
+def get_template_vars(repo_name: str, config: dict) -> dict:
+    """Build the template variables dict for a repo."""
+    return {
         "repo_name": repo_name,
         "tool_name": config["tool_name"],
         "tool_package": config.get("tool_package", ""),
@@ -92,36 +91,52 @@ def generate_jules_md(repo_name: str, config: dict, dry_run: bool = False) -> st
         "extra_keep_domains": config.get("extra_keep_domains", []),
     }
 
+
+def generate_file(template_path: Path, output_path: Path, variables: dict, dry_run: bool = False) -> str:
+    """Render a template and write to output path."""
+    template_text = template_path.read_text(encoding="utf-8")
     rendered = render_template(template_text, variables)
 
-    output_path = ROOT / repo_name / "JULES.md"
-
     if dry_run:
-        print(f"\n{'='*60}")
-        print(f"[DRY RUN] Would write: {output_path}")
-        print(f"{'='*60}")
-        print(rendered[:500] + "..." if len(rendered) > 500 else rendered)
+        print(f"  [DRY RUN] Would write: {output_path}")
     else:
         output_path.write_text(rendered, encoding="utf-8")
-        print(f"✅ Generated: {output_path}")
+        print(f"  ✅ {output_path.name}")
 
     return rendered
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Generate JULES.md files from repos.json.")
+    ap = argparse.ArgumentParser(description="Generate JULES.md and AGENTS.md from repos.json.")
     ap.add_argument("--dry-run", action="store_true", help="Preview without writing.")
     ap.add_argument("--repo", type=str, help="Generate for a single repo.")
+    ap.add_argument("--jules-only", action="store_true", help="Only generate JULES.md.")
+    ap.add_argument("--agents-only", action="store_true", help="Only generate AGENTS.md.")
     args = ap.parse_args()
 
     repos = load_repos()
     targets = {args.repo: repos[args.repo]} if args.repo else repos
 
+    count = 0
     for repo_name, config in targets.items():
-        generate_jules_md(repo_name, config, dry_run=args.dry_run)
+        variables = get_template_vars(repo_name, config)
+        repo_dir = ROOT / repo_name
+        if not repo_dir.exists():
+            print(f"⚠️ Skipping {repo_name} — directory not found")
+            continue
+
+        print(f"📦 {repo_name}")
+
+        if not args.agents_only:
+            generate_file(TEMPLATE_FILE, repo_dir / "JULES.md", variables, args.dry_run)
+            count += 1
+
+        if not args.jules_only and AGENTS_TEMPLATE_FILE.exists():
+            generate_file(AGENTS_TEMPLATE_FILE, repo_dir / "AGENTS.md", variables, args.dry_run)
+            count += 1
 
     print(f"\n{'='*40}")
-    print(f"Generated {len(targets)} JULES.md file(s) from repos.json")
+    print(f"Generated {count} file(s) from repos.json")
     print(f"{'='*40}")
 
 
