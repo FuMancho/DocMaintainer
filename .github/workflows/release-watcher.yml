@@ -67,6 +67,7 @@ jobs:
         run: |
           python scripts/trigger_jules.py \
             --repo ${{ matrix.repo }} \
+            --use-research \
             --auto-merge \
             --poll-interval 60 \
             --timeout 3600

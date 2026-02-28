@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-trigger_jules.py — Create Jules sessions for all documentation repos.
+trigger_jules.py — Create Jules sessions for documentation repos.
 
 Uses the Jules REST API (v1alpha) to kick off documentation update tasks.
 Requires the JULES_API_KEY environment variable to be set.
@@ -8,6 +8,9 @@ Requires the JULES_API_KEY environment variable to be set.
 Usage:
     python scripts/trigger_jules.py                    # all repos
     python scripts/trigger_jules.py --repo GeminiDocs  # single repo
+    python scripts/trigger_jules.py --smart            # skip repos with no changes
+    python scripts/trigger_jules.py --use-research     # inject research into prompts
+    python scripts/trigger_jules.py --from-health-check # fix health issues
     python scripts/trigger_jules.py --auto-merge       # create + poll + merge
     python scripts/trigger_jules.py --dry-run          # preview without sending
 """
@@ -23,7 +26,10 @@ import urllib.error
 from pathlib import Path
 
 API_BASE = "https://jules.googleapis.com/v1alpha"
-REPOS_FILE = Path(__file__).parent.parent / "repos.json"
+ROOT = Path(__file__).parent.parent
+REPOS_FILE = ROOT / "repos.json"
+DATA_FILE = ROOT / "data" / "last_releases.json"
+REPORTS_DIR = ROOT / "data" / "research_reports"
 
 
 def load_repos_config() -> dict:
@@ -55,6 +61,138 @@ ACTIVE_STATES = {"STATE_UNSPECIFIED", "ACTIVE", "WAITING_FOR_USER"}
 # Session states that mean "done"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
+
+# ================= SMART DISPATCH =================
+
+def check_new_releases() -> set[str]:
+    """Return set of repo names that have new releases since last Jules run."""
+    if not DATA_FILE.exists():
+        return set()
+    with open(DATA_FILE) as f:
+        state = json.load(f)
+
+    changed = set()
+    for repo_name, info in state.items():
+        last_triggered = info.get("last_triggered", "")
+        last_checked = info.get("last_checked", "")
+        tag_id = info.get("tag_id", "")
+        # If there's a tag and it was updated after last trigger, mark as changed
+        if tag_id and last_checked > last_triggered:
+            changed.add(repo_name)
+    return changed
+
+
+def check_research_reports() -> dict[str, str]:
+    """Return {repo_name: report_content} for repos with recent research reports."""
+    reports = {}
+    if not REPORTS_DIR.exists():
+        return reports
+
+    for report_file in sorted(REPORTS_DIR.glob("*.md"), reverse=True):
+        # Parse repo name from filename: ClaudeCodeDocs_2026-02-28.md
+        parts = report_file.stem.rsplit("_", 1)
+        if len(parts) == 2:
+            repo_name = parts[0]
+            if repo_name in REPOS and repo_name not in reports:
+                content = report_file.read_text(encoding="utf-8")
+                if len(content) > 100:  # Skip empty/failed reports
+                    reports[repo_name] = content
+    return reports
+
+
+def check_health_issues() -> dict[str, list[str]]:
+    """Run health check and return {repo_name: [issues]} for repos with problems."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "health_check.py"), "--json"],
+            capture_output=True, text=True, timeout=60, cwd=str(ROOT),
+        )
+        if result.stdout.strip():
+            data = json.loads(result.stdout)
+            return {k: v for k, v in data.items() if v}  # Only repos with issues
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        pass
+
+    # Fallback: run health check and parse text output
+    issues: dict[str, list[str]] = {}
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "health_check.py")],
+            capture_output=True, text=True, timeout=60, cwd=str(ROOT),
+        )
+        current_repo = ""
+        for line in result.stdout.splitlines():
+            if line.startswith("⚠️") or line.startswith("❌"):
+                for repo_name in REPOS:
+                    if repo_name in line:
+                        current_repo = repo_name
+                        break
+            if current_repo and ("ISSUE" in line.upper() or "WARNING" in line.upper()):
+                issues.setdefault(current_repo, []).append(line.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return issues
+
+
+def build_smart_targets(targets: dict) -> dict:
+    """Filter targets to only repos that need updating."""
+    new_releases = check_new_releases()
+    research = check_research_reports()
+
+    smart_targets = {}
+    for repo_name, config in targets.items():
+        reasons = []
+        if repo_name in new_releases:
+            reasons.append("new release")
+        if repo_name in research:
+            reasons.append("research available")
+        if reasons:
+            smart_targets[repo_name] = config
+            print(f"  ✅ {repo_name}: dispatching ({', '.join(reasons)})")
+        else:
+            print(f"  ⏭️  {repo_name}: skipping (no changes detected)")
+
+    return smart_targets
+
+
+def build_research_prompt(repo_name: str, base_prompt: str, reports: dict[str, str]) -> str:
+    """Enhance the prompt with research findings."""
+    report = reports.get(repo_name, "")
+    if not report:
+        return base_prompt
+
+    # Extract key findings (first 1500 chars of research)
+    summary = report[:1500]
+    if len(report) > 1500:
+        summary += "\n...(truncated)"
+
+    return (
+        f"{base_prompt}\n\n"
+        f"## Research Context\n\n"
+        f"The following research was gathered from the latest deep research scan. "
+        f"Use these findings to prioritize your updates:\n\n"
+        f"{summary}"
+    )
+
+
+def build_health_fix_prompt(repo_name: str, issues: list[str]) -> str:
+    """Build a focused prompt to fix health check issues."""
+    issue_items = list(issues) if isinstance(issues, dict) else list(issues)
+    issue_list = "\n".join(f"- {issue}" for issue in issue_items[:10])
+    return (
+        f"Fix the following documentation health check issues in this repository. "
+        f"Follow the instructions in JULES.md for formatting standards.\n\n"
+        f"## Issues to Fix\n\n"
+        f"{issue_list}\n\n"
+        f"For stub files (< 15 lines), expand them with real content from the official "
+        f"documentation. For broken links, check docs/official-links.md and replace with "
+        f"working URLs. For missing files, create them following the existing doc structure.\n\n"
+        f"Commit with: 'fix: resolve health check issues [automated]'"
+    )
+
+
+# ================= JULES API =================
 
 def jules_request(
     path: str,
@@ -129,18 +267,7 @@ def poll_sessions(
     poll_interval: int = 60,
     timeout: int = 3600,
 ) -> dict[str, dict]:
-    """
-    Poll multiple sessions until they all reach a terminal state.
-
-    Args:
-        api_key: Jules API key
-        session_ids: {repo_name: session_id}
-        poll_interval: seconds between polls
-        timeout: max seconds to wait
-
-    Returns:
-        {repo_name: session_data}
-    """
+    """Poll multiple sessions until they all reach a terminal state."""
     start = time.time()
     completed: dict[str, dict] = {}
     pending = dict(session_ids)
@@ -215,48 +342,52 @@ def merge_pr(pr_url: str, gh_token: str | None = None) -> bool:
         return False
 
 
+# ================= MAIN =================
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Trigger Jules documentation update sessions.",
     )
     ap.add_argument(
-        "--repo",
-        type=str,
-        default=None,
-        choices=list(REPOS.keys()),
+        "--repo", type=str, default=None, choices=list(REPOS.keys()),
         help="Trigger a single repo instead of all.",
     )
     ap.add_argument(
-        "--dry-run",
-        action="store_true",
+        "--dry-run", action="store_true",
         help="Preview what would be sent without making API calls.",
     )
     ap.add_argument(
-        "--list-sources",
-        action="store_true",
+        "--list-sources", action="store_true",
         help="List connected sources and exit.",
     )
     ap.add_argument(
-        "--auto-merge",
-        action="store_true",
+        "--smart", action="store_true",
+        help="Only dispatch repos with new releases or research findings.",
+    )
+    ap.add_argument(
+        "--use-research", action="store_true",
+        help="Inject deep research findings into Jules prompts.",
+    )
+    ap.add_argument(
+        "--from-health-check", action="store_true",
+        help="Generate targeted fix tasks from health check issues.",
+    )
+    ap.add_argument(
+        "--auto-merge", action="store_true",
         help="After creating sessions, poll until complete and auto-merge PRs.",
     )
     ap.add_argument(
-        "--poll-interval",
-        type=int,
-        default=60,
-        help="Seconds between status polls when using --auto-merge (default: 60).",
+        "--poll-interval", type=int, default=60,
+        help="Seconds between status polls (default: 60).",
     )
     ap.add_argument(
-        "--timeout",
-        type=int,
-        default=3600,
-        help="Max seconds to wait for sessions when using --auto-merge (default: 3600).",
+        "--timeout", type=int, default=3600,
+        help="Max seconds to wait for sessions (default: 3600).",
     )
     args = ap.parse_args()
 
     api_key = os.environ.get("JULES_API_KEY")
-    if not api_key:
+    if not api_key and not args.dry_run:
         print("ERROR: JULES_API_KEY environment variable is not set.", file=sys.stderr)
         print("Get your API key from: https://jules.google.com/settings#api", file=sys.stderr)
         sys.exit(1)
@@ -270,6 +401,34 @@ def main() -> None:
 
     # Determine which repos to trigger
     targets = {args.repo: REPOS[args.repo]} if args.repo else REPOS
+
+    # Smart dispatch: skip repos with no changes
+    if args.smart:
+        print("🧠 Smart dispatch — checking which repos need updating...")
+        targets = build_smart_targets(targets)
+        if not targets:
+            print("\n✅ All repos up to date — no Jules tasks dispatched.")
+            return
+        print(f"\n📦 Will dispatch {len(targets)} repo(s)\n")
+
+    # Load research reports if requested
+    research = check_research_reports() if args.use_research else {}
+    if research:
+        print(f"📊 Research available for: {', '.join(research.keys())}\n")
+
+    # Health-fix mode: override prompts with targeted fix tasks
+    health_issues: dict[str, list[str]] = {}
+    if args.from_health_check:
+        print("🏥 Checking for health issues...")
+        health_issues = check_health_issues()
+        if health_issues:
+            print(f"  Found issues in: {', '.join(health_issues.keys())}")
+            # Only target repos with issues
+            targets = {k: v for k, v in targets.items() if k in health_issues}
+        else:
+            print("  ✅ No health issues found — nothing to fix.")
+            return
+        print()
 
     # Resolve source names
     source_map: dict[str, str] = {}
@@ -288,14 +447,27 @@ def main() -> None:
     err = 0
     for repo_name, config in targets.items():
         full_name = f"{config['owner']}/{config['repo']}"
+
+        # Build the right prompt
+        if args.from_health_check and repo_name in health_issues:
+            prompt = build_health_fix_prompt(repo_name, health_issues[repo_name])
+            title = f"Fix health check issues — {repo_name}"
+        elif args.use_research and repo_name in research:
+            prompt = build_research_prompt(repo_name, config["prompt"], research)
+            title = f"Research-driven update — {repo_name}"
+        else:
+            prompt = config["prompt"]
+            title = config["title"]
+
         print(f"{'[DRY RUN] ' if args.dry_run else ''}Creating session for {full_name}...")
 
         if args.dry_run:
             print(f"  Source: sources/github/{full_name}")
             print(f"  Branch: {config['branch']}")
-            print(f"  Title:  {config['title']}")
-            print(f"  Prompt: {config['prompt'][:80]}...")
-            print(f"  Auto-merge: {args.auto_merge}")
+            print(f"  Title:  {title}")
+            mode = "health-fix" if args.from_health_check else "research" if args.use_research else "standard"
+            print(f"  Mode:   {mode}")
+            print(f"  Prompt: {prompt[:120]}...")
             print()
             continue
 
@@ -307,13 +479,7 @@ def main() -> None:
             continue
 
         try:
-            result = create_session(
-                api_key,
-                source_name,
-                config["branch"],
-                config["title"],
-                config["prompt"],
-            )
+            result = create_session(api_key, source_name, config["branch"], title, prompt)
             session_id = result.get("id", "?")
             print(f"  ✅ Session created: {session_id}")
             results.append({"repo": repo_name, "session_id": session_id, "status": "ok"})
